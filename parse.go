@@ -51,6 +51,10 @@ type ParseOptions struct {
 	// An array of directives to skip over and not include in the payload.
 	IgnoreDirectives []string
 
+	// An array of directives to skip parsing the block of, but keep the
+	// directive in the payload
+	IgnoreDirectiveBlocks []string
+
 	// If an error is found while parsing, it will be passed to this callback
 	// function. The results of the callback function will be set in the
 	// PayloadError struct that's added to the Payload struct's Errors array.
@@ -293,6 +297,18 @@ func (p *parser) parse(parsing *Config, tokens <-chan NgxToken, ctx blockCtx, co
 			if t.Value == "{" && !t.IsQuoted {
 				_, _ = p.parse(parsing, tokens, nil, true)
 			}
+			continue
+		}
+
+		// consume the directive if it is ignored and move on
+		if contains(p.options.IgnoreDirectiveBlocks, stmt.Directive) {
+			// if this directive was a block consume it too
+			if t.Value == "{" && !t.IsQuoted {
+				_, _ = p.parse(parsing, tokens, nil, true)
+			}
+			// we keep it still
+			stmt.Block = make(Directives, 0)
+			parsed = append(parsed, stmt)
 			continue
 		}
 
