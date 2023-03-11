@@ -218,6 +218,9 @@ func (p *parser) parse(parsing *Config, tokens <-chan NgxToken, ctx blockCtx, co
 			if t.Value == "{" && !t.IsQuoted {
 				_, _ = p.parse(parsing, tokens, nil, true)
 			}
+			parsed = append(parsed, &Directive{
+				Directive: t.Value,
+			})
 			continue
 		}
 
@@ -227,6 +230,7 @@ func (p *parser) parse(parsing *Config, tokens <-chan NgxToken, ctx blockCtx, co
 		}
 
 		// the first token should always be an nginx directive
+		// unless we're in a *_by_lua_block
 		stmt := &Directive{
 			Directive: t.Value,
 			Line:      t.Line,
@@ -300,14 +304,23 @@ func (p *parser) parse(parsing *Config, tokens <-chan NgxToken, ctx blockCtx, co
 			continue
 		}
 
-		// consume the directive if it is ignored and move on
+		// special parsing here
 		if contains(p.options.IgnoreDirectiveBlocks, stmt.Directive) {
 			// if this directive was a block consume it too
 			if t.Value == "{" && !t.IsQuoted {
-				_, _ = p.parse(parsing, tokens, nil, true)
+				var consumed Directives
+				consumed, _ = p.parse(parsing, tokens, nil, true)
+
+				content := strings.Builder{}
+				for _, d := range consumed {
+					dir := *d
+					content.WriteString(dir.Directive)
+					content.WriteString("\\n")
+				}
+				comment := content.String()
+				stmt.Comment = &comment
 			}
 			// we keep it still
-			stmt.Block = make(Directives, 0)
 			parsed = append(parsed, stmt)
 			continue
 		}
