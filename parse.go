@@ -8,6 +8,7 @@
 package crossplane
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/imega/luaformatter/formatter"
 )
 
 // nolint:gochecknoglobals
@@ -50,10 +53,6 @@ type parser struct {
 type ParseOptions struct {
 	// An array of directives to skip over and not include in the payload.
 	IgnoreDirectives []string
-
-	// An array of directives to skip parsing the block of, but keep the
-	// directive in the payload
-	IgnoreDirectiveBlocks []string
 
 	// If an error is found while parsing, it will be passed to this callback
 	// function. The results of the callback function will be set in the
@@ -304,23 +303,43 @@ func (p *parser) parse(parsing *Config, tokens <-chan NgxToken, ctx blockCtx, co
 			continue
 		}
 
-		// special parsing here
-		if contains(p.options.IgnoreDirectiveBlocks, stmt.Directive) {
+		// lua blocks get special handling
+		if strings.HasSuffix(stmt.Directive, "_by_lua_block") {
 			// if this directive was a block consume it too
 			if t.Value == "{" && !t.IsQuoted {
-				var consumed Directives
-				consumed, _ = p.parse(parsing, tokens, nil, true)
+				consumed, _ := p.parse(parsing, tokens, nil, true)
 
-				content := strings.Builder{}
+				// bytes.Buffer lets us pass this straight to the formatter
+				content := bytes.Buffer{}
 				for _, d := range consumed {
 					dir := *d
 					content.WriteString(dir.Directive)
-					content.WriteString("\\n")
+					content.WriteString(" ")
 				}
-				comment := content.String()
-				stmt.Comment = &comment
+
+				buf := new(bytes.Buffer)
+				config := formatter.Config{
+					IndentSize: 3,
+					MaxLineLength: 120,
+					Highlight: false,
+				}
+
+				err = formatter.Format(config, content.Bytes(), buf)
+				if err != nil {
+					return nil, &ParseError{
+						What: fmt.Sprintf(`failed to format the lua in "%s" directive in %s:%d`,
+							stmt.Directive,
+							parsing.File,
+							stmt.Line,
+						),
+						File: &parsing.File,
+						Line: &stmt.Line,
+					}
+				} else {
+					comment := buf.String()
+					stmt.Comment = &comment
+				}
 			}
-			// we keep it still
 			parsed = append(parsed, stmt)
 			continue
 		}
