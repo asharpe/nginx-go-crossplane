@@ -1,4 +1,4 @@
-module github.com/asharpe/nginx-go-crossplane
+module github.com/nginxinc/nginx-go-crossplane
 
 go 1.19
 
