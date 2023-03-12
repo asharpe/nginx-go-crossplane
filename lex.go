@@ -29,6 +29,7 @@ const (
 	inComment
 	inVar
 	inQuote
+	inLua
 )
 
 const TokenChanCap = 2048
@@ -61,13 +62,17 @@ func tokenize(reader io.Reader, tokenCh chan NgxToken) {
 	readNext := true
 	esc := false
 	depth := 0
+	luaDepth := 0
+	var prev NgxToken
 	var la, quote string
 
 	scanner := bufio.NewScanner(reader)
 	scanner.Split(bufio.ScanRunes)
 
 	emit := func(line int, quoted bool, err error) {
-		tokenCh <- NgxToken{Value: token.String(), Line: line, IsQuoted: quoted, Error: err}
+		tok := NgxToken{Value: token.String(), Line: line, IsQuoted: quoted, Error: err}
+		prev = tok
+		tokenCh <- tok
 		token.Reset()
 		lexState = skipSpace
 	}
@@ -155,6 +160,16 @@ func tokenize(reader io.Reader, tokenCh chan NgxToken) {
 					emit(tokenStartLine, false, nil)
 				}
 
+				// check if we're entering a lua block
+				if la == "{" {
+					if strings.HasSuffix(prev.Value, "_by_lua_block") {
+						lexState = inLua
+						tokenStartLine = tokenLine
+						luaDepth = depth
+						continue
+					}
+				}
+
 				// only '}' can be repeated
 				if dupSpecialChar && la != "}" {
 					emit(tokenStartLine, false, &ParseError{
@@ -188,6 +203,28 @@ func tokenize(reader io.Reader, tokenCh chan NgxToken) {
 			}
 
 			dupSpecialChar = false
+			token.WriteString(la)
+
+		case inLua:
+			// TODO assumes balanced braces
+			if la == "{" {
+				depth++
+			}
+			if la == "}" {
+				if depth == luaDepth {
+					// this is the lua body
+					emit(tokenStartLine, false, nil)
+
+					// TODO I'm not 100% on this
+					// we entered a block to get into this state, and this
+					// is where we exit, so we'll emit the required token
+					token.WriteString(la)
+					emit(tokenLine, false, nil)
+
+					continue
+				}
+				depth--
+			}
 			token.WriteString(la)
 
 		case inComment:

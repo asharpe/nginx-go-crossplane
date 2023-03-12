@@ -8,7 +8,6 @@
 package crossplane
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -17,8 +16,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"github.com/imega/luaformatter/formatter"
 )
 
 // nolint:gochecknoglobals
@@ -217,9 +214,6 @@ func (p *parser) parse(parsing *Config, tokens <-chan NgxToken, ctx blockCtx, co
 			if t.Value == "{" && !t.IsQuoted {
 				_, _ = p.parse(parsing, tokens, nil, true)
 			}
-			parsed = append(parsed, &Directive{
-				Directive: t.Value,
-			})
 			continue
 		}
 
@@ -229,7 +223,6 @@ func (p *parser) parse(parsing *Config, tokens <-chan NgxToken, ctx blockCtx, co
 		}
 
 		// the first token should always be an nginx directive
-		// unless we're in a *_by_lua_block
 		stmt := &Directive{
 			Directive: t.Value,
 			Line:      t.Line,
@@ -300,47 +293,6 @@ func (p *parser) parse(parsing *Config, tokens <-chan NgxToken, ctx blockCtx, co
 			if t.Value == "{" && !t.IsQuoted {
 				_, _ = p.parse(parsing, tokens, nil, true)
 			}
-			continue
-		}
-
-		// lua blocks get special handling
-		if strings.HasSuffix(stmt.Directive, "_by_lua_block") {
-			// if this directive was a block consume it too
-			if t.Value == "{" && !t.IsQuoted {
-				consumed, _ := p.parse(parsing, tokens, nil, true)
-
-				// bytes.Buffer lets us pass this straight to the formatter
-				content := bytes.Buffer{}
-				for _, d := range consumed {
-					dir := *d
-					content.WriteString(dir.Directive)
-					content.WriteString(" ")
-				}
-
-				buf := new(bytes.Buffer)
-				config := formatter.Config{
-					IndentSize: 3,
-					MaxLineLength: 120,
-					Highlight: false,
-				}
-
-				err = formatter.Format(config, content.Bytes(), buf)
-				if err != nil {
-					return nil, &ParseError{
-						What: fmt.Sprintf(`failed to format the lua in "%s" directive in %s:%d`,
-							stmt.Directive,
-							parsing.File,
-							stmt.Line,
-						),
-						File: &parsing.File,
-						Line: &stmt.Line,
-					}
-				} else {
-					comment := buf.String()
-					stmt.Comment = &comment
-				}
-			}
-			parsed = append(parsed, stmt)
 			continue
 		}
 
